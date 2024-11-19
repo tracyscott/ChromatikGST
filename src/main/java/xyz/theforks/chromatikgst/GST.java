@@ -208,7 +208,7 @@ public class GST extends LXPattern {
             int color = 0;
             synchronized(frameLock) {
                 if (lastFrame != null && x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
-                    color = lastFrame.getRGB(x, y);
+                    color = lastFrame.getRGB(x, (HEIGHT-1)-y);
                 }
             }
             colors[point.index] = LXColor.rgb(LXColor.red(color), LXColor.green(color), LXColor.blue(color));
