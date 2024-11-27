@@ -2,7 +2,6 @@ package xyz.theforks.chromatikgst;
 
 import heronarts.lx.LX;
 import heronarts.lx.LXCategory;
-import heronarts.lx.LXComponentName;
 import heronarts.lx.color.LXColor;
 import heronarts.lx.pattern.LXPattern;
 import heronarts.lx.model.LXPoint;
@@ -172,8 +171,8 @@ abstract public class GSTBase extends LXPattern {
         int width = chromatikSink.lastFrame.getWidth();
         int height = chromatikSink.lastFrame.getHeight();
         // Compute the x scale based on frame width and model width.
-        float modelWidth = (float) lx.getModel().xMax - lx.getModel().xMin;
-        float modelHeight = (float) lx.getModel().yMax - lx.getModel().yMin;
+        float modelWidth = (float) model.xMax - model.xMin;
+        float modelHeight = (float) model.yMax - model.yMin;
         float scaleX = modelWidth / width;
         float scaleY = modelHeight / height;
 
