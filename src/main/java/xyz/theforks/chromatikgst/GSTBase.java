@@ -3,8 +3,10 @@ package xyz.theforks.chromatikgst;
 import heronarts.lx.LX;
 import heronarts.lx.LXCategory;
 import heronarts.lx.color.LXColor;
+import heronarts.lx.model.LXModel;
 import heronarts.lx.pattern.LXPattern;
 import heronarts.lx.model.LXPoint;
+import heronarts.lx.transform.LXMatrix;
 import org.freedesktop.gstreamer.*;
 import org.freedesktop.gstreamer.elements.AppSink;
 import org.freedesktop.gstreamer.event.SeekFlags;
@@ -13,7 +15,9 @@ import org.freedesktop.gstreamer.message.ErrorMessage;
 import org.freedesktop.gstreamer.message.MessageType;
 
 import java.nio.ByteOrder;
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.List;
 
 /**
  * An abstract base pattern that handles GST initialization, an AppSink for receiving images, and
@@ -30,16 +34,21 @@ abstract public class GSTBase extends LXPattern {
     protected Pipeline pipeline;
     protected ChromatikSink chromatikSink  = new ChromatikSink();
     public boolean gstInitialized = false;
+    protected List<UVPoint> uvPoints = null;
+    protected Thread gstThread;
 
     public GSTBase(LX lx) {
         super(lx);
+        model.addListener((p) -> {
+            computeUVs();
+        });
     }
 
     abstract protected Pipeline initializePipeline();
     abstract protected String getPipelineName();
 
     protected void initGSTWithThread(LX lx) {
-        Thread gstThread = new Thread(() -> {
+        gstThread = new Thread(() -> {
             initializeGST(lx);
         });
         gstThread.start();
@@ -56,13 +65,13 @@ abstract public class GSTBase extends LXPattern {
         }
         gstInitialized = true;
 
-        LX.log("Initializing GStreamer pipeline: " + getPipelineName());
+        //LX.log("Initializing GStreamer pipeline: " + getPipelineName());
         Gst.init(getPipelineName());
         pipeline = initializePipeline();
         configurePipelineBus();
-        LX.log("Starting GStreamer main loop : " + getPipelineName());
+        //LX.log("Starting GStreamer main loop : " + getPipelineName());
         Gst.main();
-        LX.log("GStreamer main loop exited : " + getPipelineName());
+        //LX.log("GStreamer main loop exited : " + getPipelineName());
     }
 
     protected void disposePipeline() {
@@ -100,7 +109,7 @@ abstract public class GSTBase extends LXPattern {
         Bus bus = pipeline.getBus();
 
         // Add bus message handler
-        LX.log("Adding bus message handler for pipeline: " + getPipelineName());
+        // LX.log("Adding bus message handler for pipeline: " + getPipelineName());
         bus.connect((Bus.MESSAGE) (bus1, message) -> {
             MessageType type = message.getType();
             //LX.log("Message type: " + type + " : " + message.getSource().getName() + " pipeline: " + getPipelineName());
@@ -121,7 +130,7 @@ abstract public class GSTBase extends LXPattern {
             }
         });
 
-        LX.log("Setting pipeline to PLAYING state: " + getPipelineName());
+        //LX.log("Setting pipeline to PLAYING state: " + getPipelineName());
         // Start playing
         pipeline.setState(State.PLAYING);
         pipeline.getState(ClockTime.NONE);
@@ -133,6 +142,10 @@ abstract public class GSTBase extends LXPattern {
 
     @Override
     protected void onActive() {
+        // Compute the plane normal for the model and then compute necessary rotations
+        // to return the plane to the XY plane. Rotate the points into the xy plane.
+        // Translate the points to the origin.
+
         // Unpause the stream if it is playing
         if (pipeline != null) {
             // LX.log("Resuming GStreamer playback on pipeline: " + getPipelineName());
@@ -160,8 +173,59 @@ abstract public class GSTBase extends LXPattern {
         Gst.quit();
     }
 
+    /**
+     * Renders the current frame of the video to the model based on the UVPoints that
+     * have computed normalized uv coordinates for the points even if the plane is
+     * rotated.
+     * @param deltaMs
+     */
     @Override
     protected void run(double deltaMs) {
+        if (pipeline == null) {
+            return;
+        }
+        if (chromatikSink.lastFrame == null) {
+            return;
+        }
+        if (uvPoints == null) {
+            computeUVs();
+        }
+        int width = chromatikSink.lastFrame.getWidth();
+        int height = chromatikSink.lastFrame.getHeight();
+        // Use the UVPoint coordinates to map the colors to the model.  This is based on computing the normal plane
+        // and then handling rotations to compute the uv coordinates.
+        for (UVPoint uv : uvPoints) {
+            int x = Math.round(uv.u * (width-1));
+            int y = Math.round(uv.v * (height-1));
+            int color = 0;
+            synchronized(chromatikSink.frameLock) {
+                if (chromatikSink.lastFrame != null && x >= 0 && x < width && y >= 0 && y < height) {
+                    color = chromatikSink.lastFrame.getRGB(x, y); //(height-1)-y);
+                }
+            }
+            colors[uv.point.index] = LXColor.rgb(LXColor.red(color), LXColor.green(color), LXColor.blue(color));
+        }
+
+
+        /*  Using model normalized coordinates.  This works okay except if there are rotations.
+        for (LXPoint lp : model.points) {
+            int x = Math.round(lp.xn * (width-1));
+            int y = Math.round(lp.yn * (height-1));
+            int color = 0;
+            synchronized(chromatikSink.frameLock) {
+                if (chromatikSink.lastFrame != null && x >= 0 && x < width && y >= 0 && y < height) {
+                    color = chromatikSink.lastFrame.getRGB(x, y);
+                } else {
+                    color = LXColor.RED;
+                }
+            }
+            colors[lp.index] = LXColor.rgb(LXColor.red(color), LXColor.green(color), LXColor.blue(color));
+        }
+        *
+         */
+    }
+
+    protected void runNoUV(double deltaMs) {
         if (pipeline == null) {
             return;
         }
@@ -186,6 +250,255 @@ abstract public class GSTBase extends LXPattern {
                 }
             }
             colors[point.index] = LXColor.rgb(LXColor.red(color), LXColor.green(color), LXColor.blue(color));
+        }
+    }
+
+    public LXMatrix inverseLXMatrix(LXMatrix matrix) {
+        LXMatrix result = new LXMatrix();
+
+        // First compute inverse of rotation part (transpose)
+        result.m11 = matrix.m11;  result.m12 = matrix.m21;  result.m13 = matrix.m31;
+        result.m21 = matrix.m12;  result.m22 = matrix.m22;  result.m23 = matrix.m32;
+        result.m31 = matrix.m13;  result.m32 = matrix.m23;  result.m33 = matrix.m33;
+
+        // Now compute -R^T * T for the translation part
+        result.m14 = -(result.m11 * matrix.m14 + result.m12 * matrix.m24 + result.m13 * matrix.m34);
+        result.m24 = -(result.m21 * matrix.m14 + result.m22 * matrix.m24 + result.m23 * matrix.m34);
+        result.m34 = -(result.m31 * matrix.m14 + result.m32 * matrix.m24 + result.m33 * matrix.m34);
+
+        // Set bottom row
+        result.m41 = 0;
+        result.m42 = 0;
+        result.m43 = 0;
+        result.m44 = 1;
+
+        return result;
+    }
+
+
+    protected void computeUVs() {
+        if (uvPoints == null)
+            uvPoints = new ArrayList<UVPoint>(model.points.length);
+        else
+            uvPoints.clear();
+
+        LXMatrix viewMatrix = model.transform;
+        //LX.log("View matrix=" + viewMatrix.toString());
+        // Iterate over model children and log some info.
+        for (LXModel child : model.children) {
+            //LX.log("Child model: " + child.getClass().getName());
+            for (String key : child.metaData.keySet()) {
+                //LX.log("Child metadata: " + key + " : " + child.metaData.get(key));
+            }
+            for (String tag : child.tags) {
+                //LX.log("Child tag: " + tag);
+            }
+            LXMatrix matrix = child.transform;
+            //LX.log("Child matrix=" + matrix.toString());
+        }
+
+        float[] planeNormal = computePlaneNormal();
+        //LX.log("Plane normal= " + planeNormal[0] + " " + planeNormal[1] + " " + planeNormal[2]);
+
+        normalizePlaneNormal(planeNormal);
+        //LX.log("Normalized plane normal= " + planeNormal[0] + " " + planeNormal[1] + " " + planeNormal[2]);
+
+        float[] rotateAxisAngle = computeAxesRotates(planeNormal);
+        float[] rotateAxis = {rotateAxisAngle[0], rotateAxisAngle[1], rotateAxisAngle[2]};
+        float rotateAngle = rotateAxisAngle[3];
+        //LX.log("Rotate angle: " + rotateAngle);
+        float[] rotatedPoint = new float[3];
+        //LX.log("Updating UV coordinates. Rotating plane to XY plane: " + rotateAxis[0] + " " + rotateAxis[1] + " " + rotateAxis[2] + " " + rotateAngle);
+
+        normalizePlaneNormal(rotateAxis);
+        boolean vectorNonZero = vectorLength(rotateAxis) > 0;
+        for (LXPoint p : model.points) {
+            // For each point, rotate by rotateAxisAngle to get the plane normal to the XY plane.
+            // And then construct the UVPoint from the x and y coordinates.
+            float[] point = {p.x, p.y, p.z};
+
+            // Rotate the point to the XY plane
+            //if (vectorNonZero) {
+                rotatePointAroundAxis(point, rotateAxis, rotateAngle, rotatedPoint);
+            //} else {
+            //    rotatedPoint[0] = point[0];
+            //    rotatedPoint[1] = point[1];
+            //    rotatedPoint[2] = point[2];
+            //}
+
+            UVPoint uv = new UVPoint(p, rotatedPoint[0], rotatedPoint[1]);
+            uv.u = p.x;
+            uv.v = p.y;
+            uvPoints.add(uv);
+        }
+        // Points are still in world space.  Renormalize the UVs to be between 0 and 1.
+        UVPoint.renormalizeUVs(uvPoints);
+    }
+
+    protected float vectorLength(float[] v) {
+        return (float) Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    }
+
+    public void normalizePlaneNormal(float[] planeNormal) {
+        // Normalize the plane normal
+        float normalLength = (float)Math.sqrt(
+                planeNormal[0] * planeNormal[0] +
+                        planeNormal[1] * planeNormal[1] +
+                        planeNormal[2] * planeNormal[2]
+        );
+
+        planeNormal[0] = planeNormal[0] / normalLength;
+        planeNormal[1] = planeNormal[1] / normalLength;
+        planeNormal[2] = planeNormal[2] / normalLength;
+    }
+
+    public float[] computeAxesRotates(float[] planeNormal) {
+        // Given a plane normal, compute the series of rotations to return the plane to the XY plane.
+        // Compute the rotation matrix to rotate the plane normal to the XY plane.
+        float[] zAxis = {0, 0, 1};
+        float[] cross = new float[3];
+        cross[0] = zAxis[1] * planeNormal[2] - zAxis[2] * planeNormal[1];
+        cross[1] = zAxis[2] * planeNormal[0] - zAxis[0] * planeNormal[2];
+        cross[2] = zAxis[0] * planeNormal[1] - zAxis[1] * planeNormal[0];
+        float dot = zAxis[0] * planeNormal[0] + zAxis[1] * planeNormal[1] + zAxis[2] * planeNormal[2];
+        float[] axis = new float[3];
+        axis[0] = cross[0];
+        axis[1] = cross[1];
+        axis[2] = cross[2];
+        float angle = (float) Math.acos(dot);
+        return new float[] {axis[0], axis[1], axis[2], angle};
+    }
+
+    public float[] computeAxesRotatesOld(float[] planeNormal) {
+        // First normalize the plane normal
+        float normalLength = (float)Math.sqrt(
+                planeNormal[0] * planeNormal[0] +
+                        planeNormal[1] * planeNormal[1] +
+                        planeNormal[2] * planeNormal[2]
+        );
+
+        float[] normalizedPlaneNormal = new float[3];
+        normalizedPlaneNormal[0] = planeNormal[0] / normalLength;
+        normalizedPlaneNormal[1] = planeNormal[1] / normalLength;
+        normalizedPlaneNormal[2] = planeNormal[2] / normalLength;
+
+        float[] zAxis = {0, 0, 1};
+
+        // Compute cross product
+        float[] cross = new float[3];
+        cross[0] = zAxis[1] * normalizedPlaneNormal[2] - zAxis[2] * normalizedPlaneNormal[1];
+        cross[1] = zAxis[2] * normalizedPlaneNormal[0] - zAxis[0] * normalizedPlaneNormal[2];
+        cross[2] = zAxis[0] * normalizedPlaneNormal[1] - zAxis[1] * normalizedPlaneNormal[0];
+
+        // Normalize the cross product (rotation axis)
+        float crossLength = (float)Math.sqrt(
+                cross[0] * cross[0] +
+                        cross[1] * cross[1] +
+                        cross[2] * cross[2]
+        );
+
+        // Check for zero cross product (vectors are parallel)
+        if (crossLength < 1e-6) {
+            // Vectors are parallel - check if they point in same or opposite direction
+            if (normalizedPlaneNormal[2] > 0) {
+                // Vectors point in same direction - no rotation needed
+                return new float[] {1, 0, 0, 0};
+            } else {
+                // Vectors point in opposite directions - rotate 180 degrees around any perpendicular axis
+                return new float[] {1, 0, 0, (float)Math.PI};
+            }
+        }
+
+        float[] axis = new float[3];
+        axis[0] = cross[0] / crossLength;
+        axis[1] = cross[1] / crossLength;
+        axis[2] = cross[2] / crossLength;
+
+        // Compute dot product with normalized vectors
+        float dot = zAxis[0] * normalizedPlaneNormal[0] +
+                zAxis[1] * normalizedPlaneNormal[1] +
+                zAxis[2] * normalizedPlaneNormal[2];
+
+        // Clamp dot product to [-1, 1] range to avoid NaN
+        dot = Math.max(-1, Math.min(1, dot));
+
+        float angle = (float)Math.acos(dot);
+
+        return new float[] {axis[0], axis[1], axis[2], angle};
+    }
+
+
+    public float[] computePlaneNormal() {
+        // Compute the plane normal for the model
+        // Compute the plane normal for the model
+        LXPoint p0 = model.points[0];
+        LXPoint p1 = model.points[model.points.length/2];
+        LXPoint p2 = model.points[model.points.length-1];
+        float[] v1 = {p1.x - p0.x, p1.y - p0.y, p1.z - p0.z};
+        float[] v2 = {p2.x - p0.x, p2.y - p0.y, p2.z - p0.z};
+        float[] normal = new float[3];
+        normal[0] = v1[1] * v2[2] - v1[2] * v2[1];
+        normal[1] = v1[2] * v2[0] - v1[0] * v2[2];
+        normal[2] = v1[0] * v2[1] - v1[1] * v2[0];
+        return normal;
+    }
+
+    protected void rotatePointAroundAxis(float[] point, float[] axis, float angle, float[] rotatedPoint) {
+        float[] axisUnit = new float[3];
+        float axisLength = (float) Math.sqrt(axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]);
+        axisUnit[0] = axis[0] / axisLength;
+        axisUnit[1] = axis[1] / axisLength;
+        axisUnit[2] = axis[2] / axisLength;
+        float dot = point[0] * axisUnit[0] + point[1] * axisUnit[1] + point[2] * axisUnit[2];
+        float[] cross = new float[3];
+        cross[0] = axisUnit[1] * point[2] - axisUnit[2] * point[1];
+        cross[1] = axisUnit[2] * point[0] - axisUnit[0] * point[2];
+        cross[2] = axisUnit[0] * point[1] - axisUnit[1] * point[0];
+        rotatedPoint[0] = (float) (point[0] * Math.cos(angle) + cross[0] * Math.sin(angle) + dot * (1 - Math.cos(angle)) * axisUnit[0]);
+        rotatedPoint[1] = (float) (point[1] * Math.cos(angle) + cross[1] * Math.sin(angle) + dot * (1 - Math.cos(angle)) * axisUnit[1]);
+        rotatedPoint[2] = (float) (point[2] * Math.cos(angle) + cross[2] * Math.sin(angle) + dot * (1 - Math.cos(angle)) * axisUnit[2]);
+    }
+
+    /**
+     * Wrap the LXPoint's with their computed uv coordinates.  The maximum dimension will
+     * be 1 and the minimum dimension will be <= 1 for non 1:1 aspect ratios.
+     */
+    static public class UVPoint {
+        public LXPoint point;
+        public float u;
+        public float v;
+        public UVPoint(LXPoint p, float u, float v) {
+            this.point = p;
+            this.u = u;
+            this.v = v;
+        }
+
+        static public void renormalizeUVs(List<UVPoint> uvPoints) {
+            float uMin = Float.MAX_VALUE;
+            float uMax = Float.MIN_VALUE;
+            float vMin = Float.MAX_VALUE;
+            float vMax = Float.MIN_VALUE;
+            for (UVPoint uv : uvPoints) {
+                if (uv.u < uMin) {
+                    uMin = uv.u;
+                }
+                if (uv.u > uMax) {
+                    uMax = uv.u;
+                }
+                if (uv.v < vMin) {
+                    vMin = uv.v;
+                }
+                if (uv.v > vMax) {
+                    vMax = uv.v;
+                }
+            }
+            float uRange = uMax - uMin;
+            float vRange = vMax - vMin;
+            float maxRange = Math.max(uRange, vRange);
+            for (UVPoint uv : uvPoints) {
+                uv.u = (uv.u - uMin) / uRange;
+                uv.v = (uv.v - vMin) / vRange;
+            }
         }
     }
 }

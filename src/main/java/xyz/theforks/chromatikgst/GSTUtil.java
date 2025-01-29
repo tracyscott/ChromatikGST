@@ -23,7 +23,7 @@ public class GSTUtil {
     }
 
     static public void exportDefaultVideos(LX lx) {
-        LX.log("Exporting default videos");
+        LX.log("Exporting default videos for ChromatikGST");
         // Copy all the files from the resources/video folder in the jar that this class
         // came from into the media folder getVideoDir()
         String videoDir = getVideoDir(lx);
@@ -35,7 +35,7 @@ public class GSTUtil {
         // class was loaded from.
         List<String> includedVideos = GSTUtil.getIncludedVideoFiles(GST.class, "video");
         for (String includedVideo : includedVideos) {
-            LX.log("Exporting GST video: " + includedVideo);
+            LX.log("Exporting ChromatikGST video: " + includedVideo);
             File videoFile = new File(videoDir + includedVideo);
             if (!videoFile.exists()) {
                 try {

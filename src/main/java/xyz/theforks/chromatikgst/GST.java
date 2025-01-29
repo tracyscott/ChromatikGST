@@ -2,6 +2,7 @@ package xyz.theforks.chromatikgst;
 
 import heronarts.lx.LX;
 import heronarts.lx.LXCategory;
+import heronarts.lx.LXComponent;
 import heronarts.lx.LXComponentName;
 import heronarts.lx.parameter.DiscreteParameter;
 import heronarts.lx.parameter.StringParameter;
@@ -12,14 +13,17 @@ import org.freedesktop.gstreamer.elements.PlayBin;
 import java.io.File;
 
 /**
+ * Deprecated test pattern with hard-coded video filename.
  * A pattern that plays a video file using GStreamer and displays it on the model.  This
  * uses the Java API for GStreamer.
  * https://gstreamer.freedesktop.org/
  * https://github.com/gstreamer-java
  * https://javadoc.io/doc/org.freedesktop.gstreamer/gst1-java-core/latest/index.html
+ * @deprecated
  */
 @LXCategory("Custom")
 @LXComponentName("GST")
+@LXComponent.Hidden()
 public class GST extends GSTBase {
 
     public final StringParameter videoFile  =
@@ -27,11 +31,11 @@ public class GST extends GSTBase {
                     .setDescription("Video file to play");
 
     public final DiscreteParameter widthKnob =
-            new DiscreteParameter("Width", 160, 20, 1920)
+            new DiscreteParameter("Width", 160, 1, 1920)
                     .setDescription("Convert video to width");
 
     public final DiscreteParameter heightKnob =
-            new DiscreteParameter("Height", 120, 10, 1080)
+            new DiscreteParameter("Height", 120, 1, 1080)
                     .setDescription("Convert video to height");
 
     protected PlayBin playbin;
