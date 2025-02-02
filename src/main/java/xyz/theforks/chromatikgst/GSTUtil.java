@@ -19,7 +19,7 @@ public class GSTUtil {
 
 
     static protected String getVideoDir(LX lx) {
-        return lx.getMediaPath() + File.separator + "Video" + File.separator;
+        return lx.getMediaPath() + File.separator + "GSTVideo" + File.separator;
     }
 
     static public void exportDefaultVideos(LX lx) {
@@ -33,13 +33,13 @@ public class GSTUtil {
         }
         // Inspect the directory contents of resources/video in the jar file that this
         // class was loaded from.
-        List<String> includedVideos = GSTUtil.getIncludedVideoFiles(GST.class, "video");
+        List<String> includedVideos = GSTUtil.getIncludedVideoFiles(GSTVideo.class, "video");
         for (String includedVideo : includedVideos) {
             LX.log("Exporting ChromatikGST video: " + includedVideo);
             File videoFile = new File(videoDir + includedVideo);
             if (!videoFile.exists()) {
                 try {
-                    GSTUtil.copyResourceToFile(GST.class, "video/" + includedVideo, videoFile);
+                    GSTUtil.copyResourceToFile(GSTVideo.class, "video/" + includedVideo, videoFile);
                 } catch (Exception e) {
                     LX.log("Error copying video file: " + e.getMessage());
                 }
@@ -96,7 +96,7 @@ public class GSTUtil {
      * @param s
      * @param videoFile
      */
-    public static void copyResourceToFile(Class<GST> gstClass, String s, File videoFile) {
+    public static void copyResourceToFile(Class<GSTVideo> gstClass, String s, File videoFile) {
         // Copy a file from the resources path of a JAR to a file on disk
         try {
             URL resourceUrl = gstClass.getClassLoader().getResource(s);

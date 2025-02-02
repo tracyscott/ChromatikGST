@@ -15,15 +15,11 @@ import heronarts.lx.parameter.*;
 import heronarts.lx.studio.LXStudio;
 import heronarts.lx.studio.ui.device.UIDevice;
 import heronarts.lx.studio.ui.device.UIDeviceControls;
-import heronarts.lx.utils.LXUtils;
 import org.freedesktop.gstreamer.*;
 import org.freedesktop.gstreamer.elements.AppSink;
 import org.freedesktop.gstreamer.elements.PlayBin;
-import org.freedesktop.gstreamer.event.SeekFlags;
-import org.freedesktop.gstreamer.event.SeekType;
 
 import java.io.File;
-import java.util.EnumSet;
 
 /**
  * A pattern that plays a video file using GStreamer and displays it on the model.  This
@@ -112,36 +108,96 @@ public class GSTVideo extends GSTBase implements UIDeviceControls<GSTVideo> {
         if (playbin != null)
             return playbin;
 
-        //LX.log("Initializing GST playbin pipeline: " + getPipelineName());
+        GSTUtil.exportDefaultVideos(lx);
+        LX.log("Initializing GST playbin pipeline: " + getPipelineName());
         playbin = new PlayBin("playbin");
         String videoFilename = getVideoDir() + videoFile.getString();
-        //LX.log("Playing : " + videoFilename);
+        LX.log("Playing : " + videoFilename);
         playbin.setURI(new File(getVideoDir() + videoFile.getString()).toURI());
-        // TODO(tracy): GStreamer durations are in nanoseconds.  This is half a second. Or 15 frames at 30fps and
-        // 30 frames at 60fps.  This should be tuned for the situation.  I haven't yet tested allowing for this to
-        // be set as a parameter and updating it dynamically.
-        playbin.set("buffer-duration", 500000000);
-        // Create and configure AppSink with correct video format
-        AppSink videoSink = createVideoSink();
+        // playbin.set("audio-sink", null);
+        // Create a fake sink
+        Element fakeSink = ElementFactory.make("fakesink", "audio-fake-sink");
+        playbin.set("audio-sink", fakeSink);
+        //int flags = (1 << 1 | 1 << 2);  // Combines VIDEO and NATIVE_VIDEO flags
+        //playbin.set("flags", flags);
+        //playbin.set("flags", PlayFlags.VIDEO | PlayFlags.NATIVE_VIDEO);
 
         // Add videoconvert element to handle format conversion
         Element videoconvert = ElementFactory.make("videoconvert", "converter");
+        if (videoconvert == null) {
+            LX.error("Failed to create videoconvert element");
+            return null;
+        }
+
         Element videoscale = ElementFactory.make("videoscale", "scaler");
+        if (videoscale == null) {
+            LX.error("Failed to create videoscale element");
+            return null;
+        }
 
-        // Create caps filter for scaling
         capsFilter = createCapsFilter(widthKnob.getValuei(), heightKnob.getValuei());
-        // Create bin to hold converter and sink
-        Bin scalerBin = new Bin("video-bin");
-        scalerBin.addMany(videoconvert, videoscale, capsFilter, videoSink);
-        Element.linkMany(videoconvert, videoscale, capsFilter, videoSink);
+        if (capsFilter == null) {
+            LX.error("Failed to create capsFilter element");
+            return null;
+        }
 
-        // Add ghost pad to bin
+        /*
+        Element videorate = ElementFactory.make("videorate", "rate");
+        if (videorate == null) {
+            LX.error("Failed to create videorate element");
+            return null;
+        }
+        videorate.set("max-rate", 30);
+        Element rateCapsFilter = ElementFactory.make("capsfilter", "ratefilter");
+        // Create caps with the specified framerate
+        Caps caps = Caps.fromString("video/x-raw,framerate=30/1");
+        rateCapsFilter.set("caps", caps);
+        */
+
+        AppSink videoSink = createVideoSink();
+        if (videoSink == null) {
+            LX.error("Failed to create videoSink element");
+            return null;
+        }
+
+        Bin scalerBin = new Bin("video-bin");
+        System.out.println("Adding videoconvert");
+        scalerBin.add(videoconvert);
+        System.out.println("Adding videoscale");
+        scalerBin.add(videoscale);
+        System.out.println("Adding capsFilter");
+        scalerBin.add(capsFilter);
+        //System.out.println("Adding videorate");
+        //scalerBin.add(videorate);
+        //scalerBin.add(rateCapsFilter);
+        System.out.println("Adding videoSink");
+        scalerBin.add(videoSink);
+
+        try {
+            System.out.println("Linking videoconvert -> videoscale");
+            videoconvert.link(videoscale);
+
+            System.out.println("Linking videoscale -> capsFilter");
+            videoscale.link(capsFilter);
+
+            System.out.println("Linking capsFilter ->  videosink");
+            capsFilter.link(videoSink);
+
+            //System.out.println("Linking videorate -> rateCapsFilter");
+            //videorate.link(rateCapsFilter);
+            //System.out.println("Linking rateCapsFilter -> videoSink");
+            //rateCapsFilter.link(videoSink);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         Pad pad = videoconvert.getStaticPad("sink");
+        if (pad == null) {
+            System.out.println("Failed to get static pad from videoconvert element");
+            return null;
+        }
         scalerBin.addPad(new GhostPad("sink", pad));
 
-        // Set bin as video sink
         playbin.setVideoSink(scalerBin);
-
         return playbin;
     }
 
@@ -174,7 +230,7 @@ public class GSTVideo extends GSTBase implements UIDeviceControls<GSTVideo> {
                             "Open Video File",
                             "Video Files",
                             new String[] { "mp4" },
-                            lx.getMediaPath() + File.separator + "Video" + File.separator,
+                            lx.getMediaPath() + File.separator + "GSTVideo" + File.separator,
                             (path) -> { onOpen(new File(path)); }
                     );
                 }
@@ -185,17 +241,17 @@ public class GSTVideo extends GSTBase implements UIDeviceControls<GSTVideo> {
                 .setDescription("Open Video")
                 .addToContainer(fileContainer);
 
-        final UI2dContainer knobsContainer = (UI2dContainer) new UI2dContainer(0, 25, 150, 30)
+        final UI2dContainer knobsContainer = (UI2dContainer) new UI2dContainer(0, 25, 150, 40)
                 .setLayout(UI2dContainer.Layout.HORIZONTAL)
                 .addToContainer(uiDevice);
 
         knobsContainer.setPadding(5);
         knobsContainer.setChildSpacing(5);
 
-        final UIKnob widthK = (UIKnob) new UIKnob(0, 0, 35, 30)
+        new UIKnob(0, 0, 35, 30)
                 .setParameter(pattern.widthKnob)
                 .addToContainer(knobsContainer);
-        final UIKnob heightK = (UIKnob) new UIKnob(40, 0, 35, 30)
+        new UIKnob(40, 0, 35, 30)
                 .setParameter(pattern.heightKnob)
                 .addToContainer(knobsContainer);
         final UIButton syncT = (UIButton) new UIButton(105, 0, 35, 30)
@@ -218,19 +274,15 @@ public class GSTVideo extends GSTBase implements UIDeviceControls<GSTVideo> {
         }
     }
 
-    @Override
-    protected void onInactive() {
-        resetPlayPosition();
-        super.onInactive();
-    }
-
     /**
      * Each time the pattern becomes inactive, reset the play position to the beginning of the video whenever
-     * sync is enabled.
+     * sync is enabled.  This is handled in GSTBase because the default onInactive() pauses the pipeline and
+     * sets the position to the current position to work around some bug on Mac OS X.  In order to reset to
+     * the head of the video each time, we need to change that call because attempting to seek again to the
+     * head after the pipeline is paused doesn't seem to have any effect.
      */
-    protected void resetPlayPosition() {
-        if (sync.isOn() && pipeline != null) {
-            pipeline.seek(1.0, Format.TIME, EnumSet.of(SeekFlags.SEGMENT), SeekType.SET, 0, SeekType.NONE, 0);
-        }
+    @Override
+    protected boolean isSyncOn() {
+        return sync.isOn();
     }
 }

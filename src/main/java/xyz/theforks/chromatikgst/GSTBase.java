@@ -13,7 +13,9 @@ import org.freedesktop.gstreamer.event.SeekFlags;
 import org.freedesktop.gstreamer.event.SeekType;
 import org.freedesktop.gstreamer.message.ErrorMessage;
 import org.freedesktop.gstreamer.message.MessageType;
+import org.freedesktop.gstreamer.Version;
 
+import java.awt.image.BufferedImage;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -31,11 +33,41 @@ import java.util.List;
  */
 @LXCategory("Custom")
 abstract public class GSTBase extends LXPattern {
+
+    static {
+        appendJnaPath();
+    }
+
+    static void appendJnaPath() {
+        // NOTE(tracy): This requires the GStreamer framework to be installed on the system in the standard
+        // location on Mac.  For Windows, GStreamer being in the path was good enough.  Since this needs to
+        // be bound before we attempt any JNA code it is currently in a static
+        // initializer for our Pattern classes.  It would be good to make this more configurable as a property
+        // in the ~/Chromatik/ChromatikGST directory perhaps.
+        String osName = System.getProperty("os.name");
+        if (osName.startsWith("Mac")) {
+            String[] directories = {
+              "/Volumes/Macintosh HD/System/Volumes/Data/Library/Frameworks/GStreamer.framework/Versions/1.0/lib"
+            };
+            String currentPath = System.getProperty("jna.library.path");
+            if (currentPath == null) currentPath = "";
+            StringBuilder newPath = new StringBuilder(currentPath);
+            for (String dir : directories) {
+                if (newPath.length() > 0) {
+                    newPath.append(":");
+                }
+                newPath.append(dir);
+            }
+            System.setProperty("jna.library.path", newPath.toString());
+        }
+    }
+
     protected Pipeline pipeline;
     protected ChromatikSink chromatikSink  = new ChromatikSink();
     public boolean gstInitialized = false;
     protected List<UVPoint> uvPoints = null;
     protected Thread gstThread;
+    protected boolean uvsNeedUpdate;
 
     public GSTBase(LX lx) {
         super(lx);
@@ -64,14 +96,16 @@ abstract public class GSTBase extends LXPattern {
             return;
         }
         gstInitialized = true;
-
-        //LX.log("Initializing GStreamer pipeline: " + getPipelineName());
-        Gst.init(getPipelineName());
+        LX.log("Initializing GStreamer");
+        String[] initResult = Gst.init(Version.BASELINE, getPipelineName());
+        for (String result : initResult) {
+            LX.log("GStreamer init result: " + result);
+        }
         pipeline = initializePipeline();
         configurePipelineBus();
-        //LX.log("Starting GStreamer main loop : " + getPipelineName());
+        LX.log("Starting GStreamer main loop : " + getPipelineName());
         Gst.main();
-        //LX.log("GStreamer main loop exited : " + getPipelineName());
+        LX.log("GStreamer main loop exited : " + getPipelineName());
     }
 
     protected void disposePipeline() {
@@ -85,6 +119,7 @@ abstract public class GSTBase extends LXPattern {
      * @return AppSink pipeline element.
      */
     protected AppSink createVideoSink() {
+        LX.log("Creating appsink");
         AppSink videoSink = (AppSink) ElementFactory.make("appsink", "video-output");
         videoSink.set("emit-signals", true);
         // Set caps for raw video format - use BGRx for proper color
@@ -109,28 +144,32 @@ abstract public class GSTBase extends LXPattern {
         Bus bus = pipeline.getBus();
 
         // Add bus message handler
-        // LX.log("Adding bus message handler for pipeline: " + getPipelineName());
+        LX.log("Adding bus message handler for pipeline: " + getPipelineName());
         bus.connect((Bus.MESSAGE) (bus1, message) -> {
             MessageType type = message.getType();
-            //LX.log("Message type: " + type + " : " + message.getSource().getName() + " pipeline: " + getPipelineName());
+            LX.log("Message type: " + type + " : " + message.getSource().getName() + " pipeline: " + getPipelineName());
 
             // Loop video when segment is done
             if (type == MessageType.SEGMENT_DONE) {
                 // GStreamer video looping
                 // https://stackoverflow.com/questions/53747278/seamless-video-loop-in-gstreamer
-                // LX.log("Segment done, re-seeking to start of pipeline: " + getPipelineName());
+                LX.log("Segment done, re-seeking to start of pipeline: " + getPipelineName());
+
                 chromatikSink.frameCount = 0;
-                pipeline.seek(1.0, Format.TIME, EnumSet.of(SeekFlags.SEGMENT), SeekType.SET, 0, SeekType.NONE, 0);
+                //pipeline.seek(1.0, Format.TIME, EnumSet.of(SeekFlags.FLUSH, SeekFlags.ACCURATE), SeekType.SET, 0, SeekType.NONE, -1);
+                pipeline.seek(1.0, Format.TIME, EnumSet.of(SeekFlags.SEGMENT, SeekFlags.ACCURATE), SeekType.SET, 0, SeekType.NONE, 0);
+                //pipeline.seek(1.0, Format.TIME, EnumSet.of(SeekFlags.FLUSH), SeekType.SET, 0, SeekType.NONE, 0);
             }
             if (type == MessageType.ERROR) {
                 ErrorMessage errMsg = (ErrorMessage) message;
                 LX.log("Chromatik GST error on pipeline: " + getPipelineName() + " : " + errMsg.getCode() + " : " + errMsg.getMessage());
+
                 pipeline.setState(State.NULL);
                 Gst.quit();
             }
         });
 
-        //LX.log("Setting pipeline to PLAYING state: " + getPipelineName());
+        LX.log("Setting pipeline to PLAYING state: " + getPipelineName());
         // Start playing
         pipeline.setState(State.PLAYING);
         pipeline.getState(ClockTime.NONE);
@@ -148,8 +187,9 @@ abstract public class GSTBase extends LXPattern {
 
         // Unpause the stream if it is playing
         if (pipeline != null) {
-            // LX.log("Resuming GStreamer playback on pipeline: " + getPipelineName());
+            LX.log("Resuming GStreamer playback on pipeline: " + getPipelineName());
             pipeline.setState(State.PLAYING);
+            //pipeline.play();
         } else {
             // TODO(tracy): This could potentially copy a lot of files out of the jar file
             // so it should probably be in the constructor.
@@ -161,8 +201,18 @@ abstract public class GSTBase extends LXPattern {
     protected void onInactive() {
         // Pause the stream if it is playing
         if (pipeline != null) {
-            // LX.log("Pausing GStreamer playback on pipeline: " + getPipelineName());
+            LX.log("Pausing GStreamer playback on pipeline: " + getPipelineName());
             pipeline.setState(State.PAUSED);
+            // By default, just set the seek position to the current position.  Note, that if
+            // we don't do this then the pipeline will eventually blow up on Mac OS X.  Not
+            // sure why, but this sacrificed chicken seems to be working.
+            long targetPosition = pipeline.queryPosition(Format.TIME);
+            if (isSyncOn())
+                targetPosition = 0;
+            pipeline.seek(1.0, Format.TIME,
+              EnumSet.of(SeekFlags.SEGMENT, SeekFlags.FLUSH, SeekFlags.ACCURATE),
+              SeekType.SET, targetPosition,
+              SeekType.NONE, -1);
         }
     }
 
@@ -171,6 +221,17 @@ abstract public class GSTBase extends LXPattern {
         LX.log("Disposing GStreamer pipeline: " + getPipelineName());
         disposePipeline();
         Gst.quit();
+    }
+
+
+    protected void preRun(double deltaMs) {
+    }
+
+    protected void postRun(double deltaMs) {
+    }
+
+    protected boolean isSyncOn() {
+        return false;
     }
 
     /**
@@ -187,25 +248,15 @@ abstract public class GSTBase extends LXPattern {
         if (chromatikSink.lastFrame == null) {
             return;
         }
-        if (uvPoints == null) {
-            computeUVs();
-        }
-        int width = chromatikSink.lastFrame.getWidth();
-        int height = chromatikSink.lastFrame.getHeight();
-        // Use the UVPoint coordinates to map the colors to the model.  This is based on computing the normal plane
-        // and then handling rotations to compute the uv coordinates.
-        for (UVPoint uv : uvPoints) {
-            int x = Math.round(uv.u * (width-1));
-            int y = Math.round(uv.v * (height-1));
-            int color = 0;
-            synchronized(chromatikSink.frameLock) {
-                if (chromatikSink.lastFrame != null && x >= 0 && x < width && y >= 0 && y < height) {
-                    color = chromatikSink.lastFrame.getRGB(x, y); //(height-1)-y);
-                }
-            }
-            colors[uv.point.index] = LXColor.rgb(LXColor.red(color), LXColor.green(color), LXColor.blue(color));
+        preRun(deltaMs);
+        BufferedImage lastFrame = null;
+        synchronized(chromatikSink.frameLock) {
+            lastFrame = chromatikSink.lastFrame;
         }
 
+        renderWithUV(lastFrame);
+
+        postRun(deltaMs);
 
         /*  Using model normalized coordinates.  This works okay except if there are rotations.
         for (LXPoint lp : model.points) {
@@ -223,6 +274,30 @@ abstract public class GSTBase extends LXPattern {
         }
         *
          */
+    }
+
+    protected void renderWithUV(BufferedImage lastFrame) {
+        int width = lastFrame.getWidth();
+        int height = lastFrame.getHeight();
+
+        if (uvPoints == null || uvsNeedUpdate) {
+            computeUVs();
+        }
+        // Use the UVPoint coordinates to map the colors to the model.  This is based on computing the normal plane
+        // and then handling rotations to compute the uv coordinates.
+        for (UVPoint uv : uvPoints) {
+            int x = Math.round(uv.u * (width-1));
+            int y = Math.round(uv.v * (height-1));
+            int color = 0;
+            if (lastFrame != null && x >= 0 && x < width && y >= 0 && y < height) {
+                color = lastFrame.getRGB(x, y); //(height-1)-y);
+            }
+            if (uv.point.index < colors.length)
+                colors[uv.point.index] = LXColor.rgb(LXColor.red(color), LXColor.green(color), LXColor.blue(color));
+            else {
+                uvsNeedUpdate = true;
+            }
+        }
     }
 
     protected void runNoUV(double deltaMs) {
@@ -253,6 +328,12 @@ abstract public class GSTBase extends LXPattern {
         }
     }
 
+    //
+    //
+    // =========== SPATIAL UV COORDINATE MAPPING BELOW ===========
+    //
+    //
+
     public LXMatrix inverseLXMatrix(LXMatrix matrix) {
         LXMatrix result = new LXMatrix();
 
@@ -277,7 +358,7 @@ abstract public class GSTBase extends LXPattern {
 
 
     protected void computeUVs() {
-        if (uvPoints == null)
+        if (uvPoints == null || uvsNeedUpdate)
             uvPoints = new ArrayList<UVPoint>(model.points.length);
         else
             uvPoints.clear();

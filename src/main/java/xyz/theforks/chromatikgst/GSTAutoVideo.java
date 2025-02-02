@@ -45,8 +45,9 @@ public class GSTAutoVideo extends GSTBase {
         capsFilter = bin.getElementByName("capsfilter0");
         Pipeline pipeline = new Pipeline(getPipelineName());
         AppSink videoSink = createVideoSink();
-        pipeline.addMany(bin, videoSink);
-        Pipeline.linkMany(bin, videoSink);
+        pipeline.add(bin);
+        pipeline.add(videoSink);
+        bin.link(videoSink);
         return pipeline;
     }
 
