@@ -53,7 +53,6 @@ public class GSTAutoVideo extends GSTBase {
 
     protected void updateCapsFilter(int width, int height) {
         if (capsFilter == null) {
-            LX.log("Caps filter not found, dimensions: " + width + "x" + height);
             return;
         }
         String capsStr = String.format("video/x-raw,width=%d,height=%d,format=BGRx",
@@ -63,6 +62,6 @@ public class GSTAutoVideo extends GSTBase {
 
     @Override
     protected String getPipelineName() {
-        return "GstAutoVideo";
+        return "GSTAutoVideo";
     }
 }

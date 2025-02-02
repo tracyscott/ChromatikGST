@@ -17,6 +17,7 @@ import java.util.stream.Stream;
 
 public class GSTUtil {
 
+    public static boolean VERBOSE = false;
 
     static protected String getVideoDir(LX lx) {
         return lx.getMediaPath() + File.separator + "GSTVideo" + File.separator;
@@ -35,9 +36,9 @@ public class GSTUtil {
         // class was loaded from.
         List<String> includedVideos = GSTUtil.getIncludedVideoFiles(GSTVideo.class, "video");
         for (String includedVideo : includedVideos) {
-            LX.log("Exporting ChromatikGST video: " + includedVideo);
             File videoFile = new File(videoDir + includedVideo);
             if (!videoFile.exists()) {
+                LX.log("Exporting ChromatikGST video: " + includedVideo);
                 try {
                     GSTUtil.copyResourceToFile(GSTVideo.class, "video/" + includedVideo, videoFile);
                 } catch (Exception e) {

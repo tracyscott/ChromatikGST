@@ -109,10 +109,10 @@ public class GSTVideo extends GSTBase implements UIDeviceControls<GSTVideo> {
             return playbin;
 
         GSTUtil.exportDefaultVideos(lx);
-        LX.log("Initializing GST playbin pipeline: " + getPipelineName());
+        if (GSTUtil.VERBOSE) LX.log("Initializing GST playbin pipeline: " + getPipelineName());
         playbin = new PlayBin("playbin");
         String videoFilename = getVideoDir() + videoFile.getString();
-        LX.log("Playing : " + videoFilename);
+        if (GSTUtil.VERBOSE) LX.log("Playing : " + videoFilename);
         playbin.setURI(new File(getVideoDir() + videoFile.getString()).toURI());
         // playbin.set("audio-sink", null);
         // Create a fake sink

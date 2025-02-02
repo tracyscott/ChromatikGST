@@ -96,16 +96,16 @@ abstract public class GSTBase extends LXPattern {
             return;
         }
         gstInitialized = true;
-        LX.log("Initializing GStreamer");
+        if (GSTUtil.VERBOSE) LX.log("Initializing GStreamer");
         String[] initResult = Gst.init(Version.BASELINE, getPipelineName());
         for (String result : initResult) {
-            LX.log("GStreamer init result: " + result);
+            if (GSTUtil.VERBOSE) LX.log("GStreamer init result: " + result);
         }
         pipeline = initializePipeline();
         configurePipelineBus();
-        LX.log("Starting GStreamer main loop : " + getPipelineName());
+        if (GSTUtil.VERBOSE) LX.log("Starting GStreamer main loop : " + getPipelineName());
         Gst.main();
-        LX.log("GStreamer main loop exited : " + getPipelineName());
+        if (GSTUtil.VERBOSE) LX.log("GStreamer main loop exited : " + getPipelineName());
     }
 
     protected void disposePipeline() {
@@ -119,7 +119,7 @@ abstract public class GSTBase extends LXPattern {
      * @return AppSink pipeline element.
      */
     protected AppSink createVideoSink() {
-        LX.log("Creating appsink");
+        if (GSTUtil.VERBOSE) LX.log("Creating appsink");
         AppSink videoSink = (AppSink) ElementFactory.make("appsink", "video-output");
         videoSink.set("emit-signals", true);
         // Set caps for raw video format - use BGRx for proper color
@@ -144,16 +144,16 @@ abstract public class GSTBase extends LXPattern {
         Bus bus = pipeline.getBus();
 
         // Add bus message handler
-        LX.log("Adding bus message handler for pipeline: " + getPipelineName());
+        if (GSTUtil.VERBOSE) LX.log("Adding bus message handler for pipeline: " + getPipelineName());
         bus.connect((Bus.MESSAGE) (bus1, message) -> {
             MessageType type = message.getType();
-            LX.log("Message type: " + type + " : " + message.getSource().getName() + " pipeline: " + getPipelineName());
+            if (GSTUtil.VERBOSE) LX.log("Message type: " + type + " : " + message.getSource().getName() + " pipeline: " + getPipelineName());
 
             // Loop video when segment is done
             if (type == MessageType.SEGMENT_DONE) {
                 // GStreamer video looping
                 // https://stackoverflow.com/questions/53747278/seamless-video-loop-in-gstreamer
-                LX.log("Segment done, re-seeking to start of pipeline: " + getPipelineName());
+                if (GSTUtil.VERBOSE) LX.log("Segment done, re-seeking to start of pipeline: " + getPipelineName());
 
                 chromatikSink.frameCount = 0;
                 //pipeline.seek(1.0, Format.TIME, EnumSet.of(SeekFlags.FLUSH, SeekFlags.ACCURATE), SeekType.SET, 0, SeekType.NONE, -1);
@@ -162,14 +162,14 @@ abstract public class GSTBase extends LXPattern {
             }
             if (type == MessageType.ERROR) {
                 ErrorMessage errMsg = (ErrorMessage) message;
-                LX.log("Chromatik GST error on pipeline: " + getPipelineName() + " : " + errMsg.getCode() + " : " + errMsg.getMessage());
+                if (GSTUtil.VERBOSE) LX.log("Chromatik GST error on pipeline: " + getPipelineName() + " : " + errMsg.getCode() + " : " + errMsg.getMessage());
 
                 pipeline.setState(State.NULL);
                 Gst.quit();
             }
         });
 
-        LX.log("Setting pipeline to PLAYING state: " + getPipelineName());
+        if (GSTUtil.VERBOSE) LX.log("Setting pipeline to PLAYING state: " + getPipelineName());
         // Start playing
         pipeline.setState(State.PLAYING);
         pipeline.getState(ClockTime.NONE);
@@ -187,7 +187,7 @@ abstract public class GSTBase extends LXPattern {
 
         // Unpause the stream if it is playing
         if (pipeline != null) {
-            LX.log("Resuming GStreamer playback on pipeline: " + getPipelineName());
+            if (GSTUtil.VERBOSE) LX.log("Resuming GStreamer playback on pipeline: " + getPipelineName());
             pipeline.setState(State.PLAYING);
             //pipeline.play();
         } else {
@@ -201,7 +201,7 @@ abstract public class GSTBase extends LXPattern {
     protected void onInactive() {
         // Pause the stream if it is playing
         if (pipeline != null) {
-            LX.log("Pausing GStreamer playback on pipeline: " + getPipelineName());
+            if (GSTUtil.VERBOSE) LX.log("Pausing GStreamer playback on pipeline: " + getPipelineName());
             pipeline.setState(State.PAUSED);
             // By default, just set the seek position to the current position.  Note, that if
             // we don't do this then the pipeline will eventually blow up on Mac OS X.  Not
@@ -218,7 +218,7 @@ abstract public class GSTBase extends LXPattern {
 
     @Override
     public void dispose() {
-        LX.log("Disposing GStreamer pipeline: " + getPipelineName());
+        if (GSTUtil.VERBOSE) LX.log("Disposing GStreamer pipeline: " + getPipelineName());
         disposePipeline();
         Gst.quit();
     }
