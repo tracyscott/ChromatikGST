@@ -347,10 +347,10 @@ abstract public class GSTBase extends LXPattern {
                 uvs[1] = 1f - uvs[1];
             }
             if (tileX.getValuei() > 1) {
-                uvs[0] = uvs[0] * tileX.getValuei() % 1f;
+                uvs[0] = (uvs[0] * tileX.getValuei() - 0.01f) % 1f;
             }
             if (tileY.getValuei() > 1) {
-                uvs[1] = uvs[1] * tileY.getValuei() % 1f;
+                uvs[1] = (uvs[1] * tileY.getValuei() - 0.01f) % 1f;
             }
             if (rotate.getValuef() > 0) {
                 rotateUV(uvs[0], uvs[1], rotate.getValuef() * (float)Math.PI * 2, uvs);
