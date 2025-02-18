@@ -36,14 +36,6 @@ public class GSTVideo extends GSTBase implements UIDeviceControls<GSTVideo> {
             new StringParameter("video", "chromatikgst.mp4")
                     .setDescription("Video file to play");
 
-    public final DiscreteParameter widthKnob =
-            new DiscreteParameter("Width", 160, 1, 1920)
-                    .setDescription("Convert video to width");
-
-    public final DiscreteParameter heightKnob =
-            new DiscreteParameter("Height", 120, 1, 1080)
-                    .setDescription("Convert video to height");
-
     public final BooleanParameter sync =
             new BooleanParameter("Sync", true)
                     .setDescription("Reset video each time pattern becomes active");
@@ -56,17 +48,12 @@ public class GSTVideo extends GSTBase implements UIDeviceControls<GSTVideo> {
     public GSTVideo(LX lx) {
         super(lx);
         addParameter("video", this.videoFile);
-        addParameter("width", this.widthKnob);
-        addParameter("height", this.heightKnob);
         addParameter("sync", this.sync);
     }
 
     @Override
     public void onParameterChanged(LXParameter p) {
         super.onParameterChanged(p);
-        if (p == widthKnob || p == heightKnob) {
-            updateCapsFilter(widthKnob.getValuei(), heightKnob.getValuei());
-        }
         if (p == videoFile) {
             if (playbin != null) {
                disposePipeline();
@@ -96,13 +83,6 @@ public class GSTVideo extends GSTBase implements UIDeviceControls<GSTVideo> {
         return capsFilter;
     }
 
-    protected void updateCapsFilter(int width, int height) {
-        if (capsFilter == null) return;
-        String capsStr = String.format("video/x-raw,width=%d,height=%d,format=BGRx",
-                widthKnob.getValuei(), heightKnob.getValuei());
-        capsFilter.set("caps", Caps.fromString(capsStr));
-    }
-
     @Override
     protected Pipeline initializePipeline() {
         if (playbin != null)
@@ -114,10 +94,19 @@ public class GSTVideo extends GSTBase implements UIDeviceControls<GSTVideo> {
         String videoFilename = getVideoDir() + videoFile.getString();
         if (GSTUtil.VERBOSE) LX.log("Playing : " + videoFilename);
         playbin.setURI(new File(getVideoDir() + videoFile.getString()).toURI());
+        // TODO(tracy): Decide what to do with audio files.  Currently we just set the audio sink to
+        // a fake sink so we don't generate audio.  This probably gets complicated to support in the
+        // way that people want to use it across different platforms.  Also, if the audio device is
+        // exclusive then this might cause problems for Chromatik to monitor?  Currently don't have
+        // the time to do all the cross platform testing and current project doesn't require audio.
+
+        // Another option for silence.
         // playbin.set("audio-sink", null);
         // Create a fake sink
         Element fakeSink = ElementFactory.make("fakesink", "audio-fake-sink");
         playbin.set("audio-sink", fakeSink);
+
+        // Another strategy for not playing audio.
         //int flags = (1 << 1 | 1 << 2);  // Combines VIDEO and NATIVE_VIDEO flags
         //playbin.set("flags", flags);
         //playbin.set("flags", PlayFlags.VIDEO | PlayFlags.NATIVE_VIDEO);
@@ -125,74 +114,44 @@ public class GSTVideo extends GSTBase implements UIDeviceControls<GSTVideo> {
         // Add videoconvert element to handle format conversion
         Element videoconvert = ElementFactory.make("videoconvert", "converter");
         if (videoconvert == null) {
-            LX.error("Failed to create videoconvert element");
+            LX.error("Failed to create videoconvert element for pipeline: " + getPipelineName());
             return null;
         }
 
         Element videoscale = ElementFactory.make("videoscale", "scaler");
         if (videoscale == null) {
-            LX.error("Failed to create videoscale element");
+            LX.error("Failed to create videoscale element for pipeline: " + getPipelineName());
             return null;
         }
 
         capsFilter = createCapsFilter(widthKnob.getValuei(), heightKnob.getValuei());
         if (capsFilter == null) {
-            LX.error("Failed to create capsFilter element");
+            LX.error("Failed to create capsFilter element for pipeline: " + getPipelineName());
             return null;
         }
-
-        /*
-        Element videorate = ElementFactory.make("videorate", "rate");
-        if (videorate == null) {
-            LX.error("Failed to create videorate element");
-            return null;
-        }
-        videorate.set("max-rate", 30);
-        Element rateCapsFilter = ElementFactory.make("capsfilter", "ratefilter");
-        // Create caps with the specified framerate
-        Caps caps = Caps.fromString("video/x-raw,framerate=30/1");
-        rateCapsFilter.set("caps", caps);
-        */
 
         AppSink videoSink = createVideoSink();
         if (videoSink == null) {
-            LX.error("Failed to create videoSink element");
+            LX.error("Failed to create videoSink element for pipeline: " + getPipelineName());
             return null;
         }
 
         Bin scalerBin = new Bin("video-bin");
-        System.out.println("Adding videoconvert");
         scalerBin.add(videoconvert);
-        System.out.println("Adding videoscale");
         scalerBin.add(videoscale);
-        System.out.println("Adding capsFilter");
         scalerBin.add(capsFilter);
-        //System.out.println("Adding videorate");
-        //scalerBin.add(videorate);
-        //scalerBin.add(rateCapsFilter);
-        System.out.println("Adding videoSink");
         scalerBin.add(videoSink);
 
         try {
-            System.out.println("Linking videoconvert -> videoscale");
             videoconvert.link(videoscale);
-
-            System.out.println("Linking videoscale -> capsFilter");
             videoscale.link(capsFilter);
-
-            System.out.println("Linking capsFilter ->  videosink");
             capsFilter.link(videoSink);
-
-            //System.out.println("Linking videorate -> rateCapsFilter");
-            //videorate.link(rateCapsFilter);
-            //System.out.println("Linking rateCapsFilter -> videoSink");
-            //rateCapsFilter.link(videoSink);
         } catch (Exception e) {
-            e.printStackTrace();
+            LX.error(e, "Failed to link elements in video-bin for pipeline: " + getPipelineName());
         }
         Pad pad = videoconvert.getStaticPad("sink");
         if (pad == null) {
-            System.out.println("Failed to get static pad from videoconvert element");
+            LX.log("Failed to get static pad from videoconvert element for pipeline: " + getPipelineName());
             return null;
         }
         scalerBin.addPad(new GhostPad("sink", pad));
@@ -203,7 +162,7 @@ public class GSTVideo extends GSTBase implements UIDeviceControls<GSTVideo> {
 
     @Override
     public void buildDeviceControls(LXStudio.UI ui, UIDevice uiDevice, GSTVideo pattern) {
-        uiDevice.setContentWidth(150);
+        uiDevice.setContentWidth(250);
         uiDevice.setLayout(UI2dContainer.Layout.VERTICAL);
         uiDevice.setPadding(5, 0);
         uiDevice.setChildSpacing(5);
@@ -258,6 +217,43 @@ public class GSTVideo extends GSTBase implements UIDeviceControls<GSTVideo> {
                 .setParameter(pattern.sync)
                 .addToContainer(knobsContainer);
         syncT.setLabel("Sync");
+
+        final UI2dContainer uvContainer= (UI2dContainer) new UI2dContainer(0, 70, 150, 40)
+                .setLayout(UI2dContainer.Layout.HORIZONTAL)
+                .addToContainer(uiDevice);
+        uvContainer.setPadding(5);
+        uvContainer.setChildSpacing(5);
+        new UIKnob(0, 0, 35, 30)
+                .setParameter(pattern.uOffset)
+                .addToContainer(uvContainer);
+        new UIKnob(40, 0, 35, 30)
+                .setParameter(pattern.vOffset)
+                .addToContainer(uvContainer);
+        new UIKnob(80, 0, 35, 30)
+                .setParameter(pattern.uWidth)
+                .addToContainer(uvContainer);
+        new UIKnob(120, 0, 35, 30)
+                .setParameter(pattern.vHeight)
+                .addToContainer(uvContainer);
+        new UIButton(35, 30, pattern.flipHorizontal)
+                .addToContainer(uvContainer);
+        new UIButton(35, 30, pattern.flipVertical)
+                .addToContainer(uvContainer);
+
+        final UI2dContainer tileContainer = (UI2dContainer) new UI2dContainer(0, 115, 150, 40)
+                .setLayout(UI2dContainer.Layout.HORIZONTAL)
+                .addToContainer(uiDevice);
+        tileContainer.setPadding(5);
+        tileContainer.setChildSpacing(5);
+        new UIKnob(0, 0, 35, 30)
+                .setParameter(pattern.rotate)
+                .addToContainer(tileContainer);
+        new UIKnob(40, 0, 35, 30)
+                .setParameter(pattern.tileX)
+                .addToContainer(tileContainer);
+        new UIKnob(80, 0, 35, 30)
+                .setParameter(pattern.tileY)
+                .addToContainer(tileContainer);
     }
 
     public void onOpen(final File openFile) {

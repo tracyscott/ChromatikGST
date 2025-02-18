@@ -18,12 +18,16 @@ import java.util.stream.Stream;
 public class GSTUtil {
 
     public static boolean VERBOSE = false;
+    public static boolean resourceFilesCopied = false;
 
     static protected String getVideoDir(LX lx) {
         return lx.getMediaPath() + File.separator + "GSTVideo" + File.separator;
     }
 
     static public void exportDefaultVideos(LX lx) {
+        if (resourceFilesCopied) {
+            return;
+        }
         LX.log("Exporting default videos for ChromatikGST");
         // Copy all the files from the resources/video folder in the jar that this class
         // came from into the media folder getVideoDir()
@@ -46,6 +50,7 @@ public class GSTUtil {
                 }
             }
         }
+        resourceFilesCopied = true;
     }
 
     static public List<String> getIncludedVideoFiles(Class<?> clazz, String resourcePath) {

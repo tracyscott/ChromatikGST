@@ -3,7 +3,6 @@ package xyz.theforks.chromatikgst;
 import heronarts.lx.LX;
 import heronarts.lx.LXCategory;
 import heronarts.lx.LXComponentName;
-import heronarts.lx.parameter.DiscreteParameter;
 import org.freedesktop.gstreamer.*;
 import org.freedesktop.gstreamer.elements.AppSink;
 
@@ -13,26 +12,9 @@ import org.freedesktop.gstreamer.elements.AppSink;
 @LXCategory("Custom")
 @LXComponentName("GSTTestSrc")
 public class GSTTestSrc extends GSTBase {
-  public final DiscreteParameter widthKnob =
-    new DiscreteParameter("Width", 160, 20, 1920)
-      .setDescription("Convert video to width");
-
-  public final DiscreteParameter heightKnob =
-    new DiscreteParameter("Height", 120, 10, 1080)
-      .setDescription("Convert video to height");
-
-  protected Element capsFilter;
 
   public GSTTestSrc(LX lx) {
     super(lx);
-    addParameter("width", this.widthKnob);
-    addParameter("height", this.heightKnob);
-    this.widthKnob.addListener((p) -> {
-      updateCapsFilter(widthKnob.getValuei(), heightKnob.getValuei());
-    });
-    this.heightKnob.addListener((p) -> {
-      updateCapsFilter(widthKnob.getValuei(), heightKnob.getValuei());
-    });
   }
 
   @Override
@@ -51,17 +33,9 @@ public class GSTTestSrc extends GSTBase {
     return pipeline;
   }
 
-  protected void updateCapsFilter(int width, int height) {
-    if (capsFilter == null) {
-      return;
-    }
-    String capsStr = String.format("video/x-raw,width=%d,height=%d,format=BGRx",
-      widthKnob.getValuei(), heightKnob.getValuei());
-    capsFilter.set("caps", Caps.fromString(capsStr));
-  }
-
   @Override
   protected String getPipelineName() {
     return "GSTTestSrc";
   }
+
 }
