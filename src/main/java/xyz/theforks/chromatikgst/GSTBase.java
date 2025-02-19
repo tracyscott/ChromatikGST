@@ -287,6 +287,7 @@ abstract public class GSTBase extends LXPattern {
     public void dispose() {
         if (GSTUtil.VERBOSE) LX.log("Disposing GStreamer pipeline: " + getPipelineName());
         disposePipeline();
+        super.dispose();
         Gst.quit();
     }
 
