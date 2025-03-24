@@ -316,10 +316,7 @@ abstract public class GSTBase extends LXPattern {
             return;
         }
         preRun(deltaMs);
-        BufferedImage lastFrame = null;
-        synchronized(chromatikSink.frameLock) {
-            lastFrame = chromatikSink.lastFrame;
-        }
+        BufferedImage lastFrame = chromatikSink.lastFrame.get();
 
         if (lastFrame != null) renderWithUV(lastFrame);
 

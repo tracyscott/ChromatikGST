@@ -9,12 +9,12 @@ import org.freedesktop.gstreamer.elements.AppSink;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class ChromatikSink implements AppSink.NEW_SAMPLE {
 
     protected int frameCount = 0;
-    protected BufferedImage lastFrame = null;
-    final Object frameLock = new Object();
+    protected final AtomicReference<BufferedImage> lastFrame = new AtomicReference<>();
 
     @Override
     public FlowReturn newSample(AppSink elem) {
@@ -34,9 +34,7 @@ public class ChromatikSink implements AppSink.NEW_SAMPLE {
         bb.asIntBuffer().get(pixels);
         buffer.unmap();
         // LX.log("Got frame: " + frameCount);
-        synchronized (frameLock) {
-            lastFrame = image;
-        }
+        lastFrame.set(image);
         sample.dispose();
         frameCount++;
 
