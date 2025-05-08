@@ -220,8 +220,10 @@ abstract public class GSTBase extends LXPattern {
             }
             if (type == MessageType.ERROR) {
                 ErrorMessage errMsg = (ErrorMessage) message;
-                if (GSTUtil.VERBOSE) LX.log("Chromatik GST error on pipeline: " + getPipelineName() + " : " + errMsg.getCode() + " : " + errMsg.getMessage());
-
+                if (GSTUtil.VERBOSE) {
+                    LX.log("Chromatik GST error on pipeline: " + getPipelineName() + " : " + errMsg.getCode() + " : " + errMsg.getMessage());
+                    LX.log("Error source name: " + errMsg.getSource().getName());
+                }
                 pipeline.setState(State.NULL);
                 Gst.quit();
             }
@@ -287,6 +289,9 @@ abstract public class GSTBase extends LXPattern {
     public void dispose() {
         if (GSTUtil.VERBOSE) LX.log("Disposing GStreamer pipeline: " + getPipelineName());
         disposePipeline();
+        if (gstThread != null) {
+            gstThread.interrupt();
+        }
         super.dispose();
         Gst.quit();
     }
@@ -362,7 +367,7 @@ abstract public class GSTBase extends LXPattern {
 
             int color = 0;
             if (x >= 0 && x < width && y >= 0 && y < height) {
-                color = lastFrame.getRGB(x, (height-1) - y);
+                color = lastFrame.getRGB(x, y);
             }
             if (uv.point.index < colors.length)
                 colors[uv.point.index] = LXColor.rgb(LXColor.red(color), LXColor.green(color), LXColor.blue(color));

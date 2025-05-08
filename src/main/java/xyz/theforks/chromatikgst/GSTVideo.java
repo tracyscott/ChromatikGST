@@ -20,6 +20,7 @@ import org.freedesktop.gstreamer.elements.AppSink;
 import org.freedesktop.gstreamer.elements.PlayBin;
 
 import java.io.File;
+import java.nio.file.Paths;
 
 /**
  * A pattern that plays a video file using GStreamer and displays it on the model.  This
@@ -93,7 +94,11 @@ public class GSTVideo extends GSTBase implements UIDeviceControls<GSTVideo> {
         playbin = new PlayBin("playbin");
         String videoFilename = getVideoDir() + videoFile.getString();
         if (GSTUtil.VERBOSE) LX.log("Playing : " + videoFilename);
-        playbin.setURI(new File(getVideoDir() + videoFile.getString()).toURI());
+        // If the string parameter doesn't include a path, then assume it is in the GSTVideo directory
+        String fullPathname = videoFile.getString();
+        if (!fullPathname.contains(File.separator))
+            fullPathname = getVideoDir() + videoFile.getString();
+        playbin.setURI(new File(fullPathname).toURI());
         // TODO(tracy): Decide what to do with audio files.  Currently we just set the audio sink to
         // a fake sink so we don't generate audio.  This probably gets complicated to support in the
         // way that people want to use it across different platforms.  Also, if the audio device is
@@ -168,9 +173,10 @@ public class GSTVideo extends GSTBase implements UIDeviceControls<GSTVideo> {
         uiDevice.setChildSpacing(5);
         final UI2dContainer fileContainer = new UI2dContainer(0, 0, 150, 18);
         fileContainer.addToContainer(uiDevice);
+        String fname = Paths.get(pattern.videoFile.getString()).getFileName().toString();
         final UILabel fileLabel = (UILabel)
                 new UILabel(0, 0, 120, 18)
-                        .setLabel(pattern.videoFile.getString())
+                        .setLabel(fname)
                         .setBackgroundColor(LXColor.BLACK)
                         .setBorderRounding(4)
                         .setTextAlignment(VGraphics.Align.CENTER, VGraphics.Align.MIDDLE)
@@ -178,18 +184,22 @@ public class GSTVideo extends GSTBase implements UIDeviceControls<GSTVideo> {
                         .addToContainer(fileContainer);
 
         pattern.videoFile.addListener(p -> {
-            fileLabel.setLabel(pattern.videoFile.getString());
+            String fname2 = Paths.get(pattern.videoFile.getString()).getFileName().toString();
+            fileLabel.setLabel(fname2);
         });
 
         this.openButton = (UIButton) new UIButton(122, 0, 18, 18) {
             @Override
             public void onToggle(boolean on) {
+                String defaultPath = lx.getMediaPath() + File.separator + "GSTVideo" + File.separator;
+                if (pattern.videoFile.getString().contains(File.separator))
+                    defaultPath = Paths.get(pattern.videoFile.getString()).getParent().toString() + File.separator;
                 if (on) {
                     ((GLX)lx).showOpenFileDialog(
                             "Open Video File",
                             "Video Files",
-                            new String[] { "mp4" },
-                            lx.getMediaPath() + File.separator + "GSTVideo" + File.separator,
+                            new String[] { "*" },
+                            defaultPath,
                             (path) -> { onOpen(new File(path)); }
                     );
                 }
@@ -261,10 +271,11 @@ public class GSTVideo extends GSTBase implements UIDeviceControls<GSTVideo> {
         if (openFile != null) {
             LX lx = getLX();
             String baseFilename = openFile.getName().substring(0, openFile.getName().indexOf('.'));
+            String fullPathname = openFile.getAbsolutePath();
             lx.engine.addTask(() -> {
                 lx.command.perform(new LXCommand.Parameter.SetString(
                         videoFile,
-                        baseFilename+".mp4"
+                        fullPathname
                 ));
             });
         }
